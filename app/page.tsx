@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +29,7 @@ interface Product {
   categoryName: string;
   subCategoryName: string;
   imageUrls: string[];
+  retailPrice: number;
 }
 
 export default function Home() {
@@ -36,6 +37,7 @@ export default function Home() {
   const [categories, setCategories] = useState<string[]>([]);
   const [subCategories, setSubCategories] = useState<string[]>([]);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | undefined>(
     undefined
   );
@@ -43,18 +45,40 @@ export default function Home() {
     string | undefined
   >(undefined);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounce search input to avoid firing an API call on every keystroke
+  useEffect(() => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [search]);
 
   useEffect(() => {
     fetch("/api/categories")
       .then((res) => res.json())
-      .then((data) => setCategories(data.categories));
+      .then((data) => setCategories(data.categories))
+      .catch((err) => {
+        console.error("Failed to load categories:", err);
+        setCategories([]);
+      });
   }, []);
 
   useEffect(() => {
     if (selectedCategory) {
-      fetch(`/api/subcategories`)
+      // Pass the selected category so the API returns only relevant subcategories
+      fetch(`/api/subcategories?category=${encodeURIComponent(selectedCategory)}`)
         .then((res) => res.json())
-        .then((data) => setSubCategories(data.subCategories));
+        .then((data) => setSubCategories(data.subCategories))
+        .catch((err) => {
+          console.error("Failed to load subcategories:", err);
+          setSubCategories([]);
+        });
     } else {
       setSubCategories([]);
       setSelectedSubCategory(undefined);
@@ -63,19 +87,29 @@ export default function Home() {
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     const params = new URLSearchParams();
-    if (search) params.append("search", search);
+    if (debouncedSearch) params.append("search", debouncedSearch);
     if (selectedCategory) params.append("category", selectedCategory);
     if (selectedSubCategory) params.append("subCategory", selectedSubCategory);
     params.append("limit", "20");
 
     fetch(`/api/products?${params}`)
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`Server error: ${res.status}`);
+        return res.json();
+      })
       .then((data) => {
         setProducts(data.products);
         setLoading(false);
+      })
+      .catch((err) => {
+        console.error("Failed to load products:", err);
+        setError("Failed to load products. Please try again.");
+        setProducts([]);
+        setLoading(false);
       });
-  }, [search, selectedCategory, selectedSubCategory]);
+  }, [debouncedSearch, selectedCategory, selectedSubCategory]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -151,6 +185,34 @@ export default function Home() {
           <div className="text-center py-12">
             <p className="text-muted-foreground">Loading products...</p>
           </div>
+        ) : error ? (
+          <div className="text-center py-12">
+            <p className="text-destructive mb-4">{error}</p>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setError(null);
+                setLoading(true);
+                const params = new URLSearchParams();
+                if (debouncedSearch) params.append("search", debouncedSearch);
+                if (selectedCategory) params.append("category", selectedCategory);
+                if (selectedSubCategory) params.append("subCategory", selectedSubCategory);
+                params.append("limit", "20");
+                fetch(`/api/products?${params}`)
+                  .then((res) => res.json())
+                  .then((data) => {
+                    setProducts(data.products);
+                    setLoading(false);
+                  })
+                  .catch(() => {
+                    setError("Failed to load products. Please try again.");
+                    setLoading(false);
+                  });
+              }}
+            >
+              Retry
+            </Button>
+          </div>
         ) : products.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-muted-foreground">No products found</p>
@@ -160,14 +222,11 @@ export default function Home() {
             <p className="text-sm text-muted-foreground mb-4">
               Showing {products.length} products
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {products.map((product) => (
                 <Link
                   key={product.stacklineSku}
-                  href={{
-                    pathname: "/product",
-                    query: { product: JSON.stringify(product) },
-                  }}
+                  href={`/product?sku=${product.stacklineSku}`}
                 >
                   <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer">
                     <CardHeader className="p-0">
@@ -187,6 +246,11 @@ export default function Home() {
                       <CardTitle className="text-base line-clamp-2 mb-2">
                         {product.title}
                       </CardTitle>
+                      {product.retailPrice != null && (
+                        <p className="text-lg font-bold text-primary mb-2">
+                          ${product.retailPrice.toFixed(2)}
+                        </p>
+                      )}
                       <CardDescription className="flex gap-2 flex-wrap">
                         <Badge variant="secondary">
                           {product.categoryName}

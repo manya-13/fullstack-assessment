@@ -7,6 +7,7 @@ export interface Product {
   subCategoryId: number;
   title: string;
   categoryName: string;
+  retailPrice: number;
   retailerSku: string;
   categoryId: number;
   subCategoryName: string;
@@ -52,8 +53,8 @@ export class ProductService {
       );
     }
 
-    const offset = filters?.offset || 0;
-    const limit = filters?.limit || filtered.length;
+    const offset = Math.max(0, filters?.offset || 0);
+    const limit = Math.min(filters?.limit || filtered.length, 100);
 
     return filtered.slice(offset, offset + limit);
   }

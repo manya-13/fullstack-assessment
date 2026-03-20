@@ -17,26 +17,45 @@ interface Product {
   imageUrls: string[];
   featureBullets: string[];
   retailerSku: string;
+  retailPrice: number;
 }
 
 export default function ProductPage() {
   const searchParams = useSearchParams();
-  const productParam = searchParams.get('product');
+  const sku = searchParams.get('sku');
   const [product, setProduct] = useState<Product | null>(null);
   const [selectedImage, setSelectedImage] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (productParam) {
-      try {
-        const parsedProduct = JSON.parse(productParam);
-        setProduct(parsedProduct);
-      } catch (error) {
-        console.error('Failed to parse product data:', error);
-      }
+    if (!sku) {
+      setLoading(false);
+      setError('No product specified.');
+      return;
     }
-  }, [productParam]);
 
-  if (!product) {
+    setLoading(true);
+    setError(null);
+
+    fetch(`/api/products/${encodeURIComponent(sku)}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Product not found (${res.status})`);
+        return res.json();
+      })
+      .then((data) => {
+        setProduct(data);
+        setSelectedImage(0);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error('Failed to fetch product:', err);
+        setError('Product not found.');
+        setLoading(false);
+      });
+  }, [sku]);
+
+  if (loading) {
     return (
       <div className="min-h-screen bg-background">
         <div className="container mx-auto px-4 py-8">
@@ -47,7 +66,27 @@ export default function ProductPage() {
             </Button>
           </Link>
           <Card className="p-8">
-            <p className="text-center text-muted-foreground">Product not found</p>
+            <p className="text-center text-muted-foreground">Loading product...</p>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !product) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto px-4 py-8">
+          <Link href="/">
+            <Button variant="ghost" className="mb-4">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Products
+            </Button>
+          </Link>
+          <Card className="p-8">
+            <p className="text-center text-muted-foreground">
+              {error || 'Product not found'}
+            </p>
           </Card>
         </div>
       </div>
@@ -89,7 +128,9 @@ export default function ProductPage() {
                   <button
                     key={idx}
                     onClick={() => setSelectedImage(idx)}
-                    className={`relative h-20 border-2 rounded-lg overflow-hidden ${
+                    aria-label={`View image ${idx + 1} of ${product.imageUrls.length}`}
+                    aria-current={selectedImage === idx ? 'true' : undefined}
+                    className={`relative h-20 border-2 rounded-lg overflow-hidden focus:outline-2 focus:outline-offset-2 focus:outline-primary ${
                       selectedImage === idx ? 'border-primary' : 'border-muted'
                     }`}
                   >
@@ -113,6 +154,11 @@ export default function ProductPage() {
                 <Badge variant="outline">{product.subCategoryName}</Badge>
               </div>
               <h1 className="text-3xl font-bold mb-2">{product.title}</h1>
+              {product.retailPrice != null && (
+                <p className="text-3xl font-bold text-primary mb-2">
+                  ${product.retailPrice.toFixed(2)}
+                </p>
+              )}
               <p className="text-sm text-muted-foreground">SKU: {product.retailerSku}</p>
             </div>
 
